@@ -1,10 +1,10 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>caddy_ai2_ros2_bringup</name>
-  <version>0.0.1</version>
-  <description>ROS2 bringup package for Caddy AI2</description>
-  <maintainer email="racarla1@inf.upv.es">Rafael Carbonell Lázaro</maintainer>
+  <name>caddy_ai2_ros2_mvsim_simulation</name>
+  <version>0.1.0</version>
+  <description>MVSim simulation package for the Caddy AI2 agricultural robot.</description>
+  <maintainer email="rafapenya96@gmail.com">Rafael Carbonell Lázaro</maintainer>
   <license>CC-BY-4.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>

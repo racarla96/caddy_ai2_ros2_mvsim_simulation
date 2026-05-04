@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(caddy_ai2_ros2_bringup)
+project(caddy_ai2_ros2_mvsim_simulation)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
