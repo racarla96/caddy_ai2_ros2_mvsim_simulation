@@ -1,0 +1,66 @@
+<!--
+  Mundo MVSim: Caddy AI2 en el circuito de carretera de MVSim (demo_road_circuit1).
+
+  Se genera al lanzar (sim_mvsim.launch.py world:=road_circuit) con jinja2. No editar a mano el XML generado.
+
+  El escenario (calzadas con baches, colina interior de 4 m, tablero del puente a 4 m, columnas, cielo)
+  se toma TAL CUAL de mvsim_tutorial/demo_road_circuit1.world.xml de la instalacion de MVSim (no se copia);
+  aqui solo se sustituye el vehiculo del demo por el Caddy con sus sensores.
+  MVSim es 2.5D: la altura del terreno bajo cada rueda sale de los mapas de alturas y planos.
+-->
+<mvsim_world version="1.0">
+    <simul_timestep>0</simul_timestep>
+
+    <gui>
+        <ortho>false</ortho>
+        <cam_distance>{{ cam_distance }}</cam_distance>
+        <cam_azimuth>150</cam_azimuth>
+        <cam_elevation>30</cam_elevation>
+        <fov_deg>70</fov_deg>
+        <follow_vehicle>caddy_ai2</follow_vehicle>
+    </gui>
+
+    <lights>
+        <enable_shadows>true</enable_shadows>
+        <light_azimuth_deg>-25.0</light_azimuth_deg>
+        <light_elevation_deg>40.0</light_elevation_deg>
+    </lights>
+
+    <georeference>
+        <latitude>{{ georef.latitude }}</latitude>
+        <longitude>{{ georef.longitude }}</longitude>
+        <height>{{ georef.height }}</height>
+        <world_to_enu_rotation_deg>{{ georef.world_to_enu_rotation_deg }}</world_to_enu_rotation_deg>
+    </georeference>
+
+{{ scenario }}
+
+    <include file="caddy_ai2.vehicle.xml" />
+
+    <vehicle name="caddy_ai2" class="caddy_ai2">
+        <init_pose>{{ init_x }} {{ init_y }} {{ init_yaw_deg }}</init_pose>
+
+{% include 'sensors.xml.j2' %}
+    </vehicle>
+
+{% if video %}
+    <!-- Grabacion de la vista 3D (MVSim >= 2.0), en tiempo de simulacion, camara que sigue al Caddy -->
+    <video_recording enabled="true">
+        <output_file>{{ video.output_file }}</output_file>
+        <fps>{{ video.fps }}</fps>
+        <width>{{ video.width }}</width>
+        <height>{{ video.height }}</height>
+        <start_time>{{ video.start_time }}</start_time>
+        <duration>{{ video.duration }}</duration>
+        <close_simulator_when_done>{{ 'true' if video.close_when_done else 'false' }}</close_simulator_when_done>
+        <camera>orbit</camera>
+        <follow_vehicle>caddy_ai2</follow_vehicle>
+        <follow_heading>true</follow_heading>
+        <cam_point_to>0.5 0 0.6</cam_point_to>
+        <cam_distance>{{ video.cam_distance }}</cam_distance>
+        <cam_azimuth>{{ video.cam_azimuth }}</cam_azimuth>
+        <cam_elevation>{{ video.cam_elevation }}</cam_elevation>
+        <fov_deg>{{ video.fov_deg }}</fov_deg>
+    </video_recording>
+{% endif %}
+</mvsim_world>

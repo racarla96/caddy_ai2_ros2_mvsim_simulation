@@ -13,8 +13,11 @@ EasyNav, RViz...) funciona igual con cualquiera de los tres.
 - **Sensores** (los de `robot_params.yaml` con `enabled: true`): Helios RS-5515 3D (la definición de 32 canales y
   70° que trae MVSim), SICK LMS291 2D, IMU y GPS SBG IG-500N, IMU VN-100 y las ZED 2i activas. Parámetros de
   simulación en `config/mvsim_sensors.yaml` (copia de los `sensor_params.yaml` de cada paquete de sensor).
-- **Mundo:** solo la **planta baja** del parking. MVSim tiene física 2D: no hay rampas ni otras plantas.
-  El mapa de ocupación (`maps/parking_garage_ground.*`) sale de un PCD de la planta baja, ver más abajo.
+- **Mundos** (`world:=`): `parking_garage` (solo la planta baja; el mapa de ocupación `maps/parking_garage_ground.*`
+  sale de un PCD de la planta baja, ver más abajo) y `road_circuit` (el `demo_road_circuit1` de MVSim, con rampas,
+  baches y un puente; ver más abajo). MVSim es **2.5D**: la altura del terreno bajo cada rueda sale de mapas de
+  alturas, planos y bloques, pero un mapa de ocupación no tiene altura, así que el parking de varias plantas
+  apiladas no se puede representar bien.
 
 ## Uso
 
@@ -26,6 +29,7 @@ ros2 launch caddy_ai2_ros2_mvsim_simulation sim_mvsim.launch.py headless:=True u
 | Argumento | Defecto | Descripción |
 |---|---|---|
 | `gazebo_compat` | `True` | Interfaz idéntica a Gazebo. Con `False`, MVSim "crudo" (`/caddy_ai2/<sensor>` y sus propios TF) |
+| `world` | `parking_garage` | `parking_garage` o `road_circuit` |
 | `headless` | `False` | Sin GUI; renderizado EGL en la GPU |
 | `realtime_factor` | `1.0` | `<1` más lento, `>1` más rápido, `0` lo más rápido posible |
 | `do_fake_localization` | `False` | Publica `map → odom` desde la verdad de terreno (Gazebo no lo hace: lo da el localizador) |
@@ -69,13 +73,36 @@ Con `gazebo_compat:=True`. Todo bajo `/caddy_ai2/`:
 
 ## Diferencias respecto a Gazebo
 
-- Solo planta baja (física 2D).
+- `parking_garage`: solo la planta baja. Con `garage_visual:=True` (mallado 3D solo visual) el Helios pierde media
+  circunferencia cuando el sensor está en y ≈ 0 (causa sin identificar), por eso está desactivado.
 - Las ZED van a la mitad de resolución (640×314 en lugar de 1280×628) con el mismo campo de visión: a resolución
   completa cada ZED es lo que más cargó a Gazebo. Se cambia en `config/mvsim_sensors.yaml`.
 - Los `frame_id` de los mensajes (ver arriba).
 - Las ganancias del control de velocidad y dirección (`mvsim/caddy_ai2.vehicle.xml.j2`) son **provisionales**:
   hay que ajustarlas contra el vehículo real (MVSim 2.0 trae `mvsim-pid-tuner`).
 - El modelo 3D de la carrocería (`meshes/caddy_ai2_chassis.stl`) y su desplazamiento son una estimación.
+
+## Mundo `road_circuit` (demo de MVSim con rampas y puente)
+
+```bash
+ros2 launch caddy_ai2_ros2_mvsim_simulation sim_mvsim.launch.py world:=road_circuit
+python3 tools/drive_route.py --route all          # piloto automático: vuelta + colina + puente
+```
+
+El escenario (calzadas de 4 m con baches, colina interior de 4 m, tablero del puente a 4 m con columnas, cielo) se
+toma **tal cual** de `mvsim_tutorial/demo_road_circuit1.world.xml` de la instalación de MVSim (no se copia);
+solo se sustituye su vehículo por el Caddy con sus sensores. `tools/drive_route.py` usa solo la interfaz
+unificada (`ground_truth/odometry` y `bicycle_steering_controller/reference`). Las esquinas de las calzadas son
+más cerradas que el radio de giro del Caddy (~3,9 m): toma arcos de 6 m y se sale un poco de la calzada. Las
+barandillas del puente están desactivadas en el propio demo ("TODO: fix collisions at different heights").
+
+**Vídeo** (MVSim ≥ 2.0 graba la vista 3D en tiempo de simulación, también en headless; si el nombre lleva un patrón
+`%06d` guarda imágenes sueltas y no hace falta `ffmpeg` en la máquina del simulador):
+
+```bash
+ros2 launch caddy_ai2_ros2_mvsim_simulation sim_mvsim.launch.py world:=road_circuit headless:=True use_rviz:=False \
+    video_output:=$HOME/frames/f_%06d.jpg video_fps:=15 video_duration:=125 video_close_when_done:=True
+```
 
 ## Verificado
 

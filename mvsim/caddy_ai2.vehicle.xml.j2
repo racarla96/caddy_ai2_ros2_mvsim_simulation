@@ -55,6 +55,7 @@
         <C_damping>10</C_damping>
     </friction>
 
+{% if chassis_mesh %}
     <!-- Carroceria del esqueleto anterior. El offset es una estimacion: hay que verificarlo
          contra el modelo real en la vista 3D. -->
     <visual>
@@ -64,4 +65,5 @@
         <model_offset_y>0.0</model_offset_y>
         <model_offset_z>0.0</model_offset_z>
     </visual>
+{% endif %}
 </vehicle:class>

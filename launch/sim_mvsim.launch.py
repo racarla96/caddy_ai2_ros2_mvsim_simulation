@@ -147,6 +147,37 @@ def _render_sensor_fragments(robot_params, prefix):
     return '\n'.join(fragments)
 
 
+def _circuit_scenario(mvsim_share):
+    """Escenario de demo_road_circuit1 (todo lo anterior a las definiciones de vehiculos), tal cual."""
+    path = os.path.join(mvsim_share, 'mvsim_tutorial', 'demo_road_circuit1.world.xml')
+    with open(path) as f:
+        text = f.read()
+    start = text.index('<element')
+    end = text.rfind('<!--', 0, text.index('Vehicle classes definition'))
+    return text[start:end]
+
+
+def _video(context, pkg_out_dir):
+    """Opciones de grabacion de video (MVSim >= 2.0), o None. Si el nombre lleva %06d guarda PNG/JPG sueltos
+    (no hace falta ffmpeg en la maquina del simulador)."""
+    out = LaunchConfiguration('video_output').perform(context).strip()
+    if not out:
+        return None
+    return dict(
+        output_file=out,
+        fps=float(LaunchConfiguration('video_fps').perform(context)),
+        width=int(LaunchConfiguration('video_width').perform(context)),
+        height=int(LaunchConfiguration('video_height').perform(context)),
+        start_time=float(LaunchConfiguration('video_start').perform(context)),
+        duration=float(LaunchConfiguration('video_duration').perform(context)),
+        close_when_done=_truthy(context, 'video_close_when_done'),
+        cam_distance=float(LaunchConfiguration('video_cam_distance').perform(context)),
+        cam_azimuth=float(LaunchConfiguration('video_cam_azimuth').perform(context)),
+        cam_elevation=float(LaunchConfiguration('video_cam_elevation').perform(context)),
+        fov_deg=float(LaunchConfiguration('video_fov').perform(context)),
+    )
+
+
 def _launch_setup(context, *args, **kwargs):
     pkg = get_package_share_directory('caddy_ai2_ros2_mvsim_simulation')
     desc = get_package_share_directory('caddy_ai2_ros2_description')
@@ -159,24 +190,18 @@ def _launch_setup(context, *args, **kwargs):
     with open(os.path.join(pkg, 'config', 'mvsim_sensors.yaml')) as f:
         cfg = yaml.safe_load(f)
 
-    grid_yaml = os.path.join(pkg, 'maps', 'parking_garage_ground.yaml')
-    with open(grid_yaml) as f:
-        grid = yaml.safe_load(f)
-    w_px, h_px = _read_pgm_size(os.path.join(os.path.dirname(grid_yaml), grid['image']))
-    ox, oy = grid['origin'][0], grid['origin'][1]
-    res = grid['resolution']
-
+    which = LaunchConfiguration('world').perform(context).strip()
     params = dict(rp)
     params.update(
         max_steer_deg=round(math.degrees(rp['max_steer_angle']), 3),
         chassis_mass=rp['mass'] - 4 * rp['wheel_mass'],
-        chassis_mesh=os.path.join(pkg, 'meshes', 'caddy_ai2_chassis.stl'),
+        chassis_mesh=(os.path.join(pkg, 'meshes', 'caddy_ai2_chassis.stl')
+                      if _truthy(context, 'chassis_visual') else None),
     )
     params.pop('sensors', None)
     sensors = _sensors(rp, cfg)
+
     world = dict(
-        grid_yaml=grid_yaml,
-        floor=dict(x_min=ox, y_min=oy, x_max=ox + w_px * res, y_max=oy + h_px * res),
         defs=os.path.join(mvsim, 'definitions'),
         georef=cfg['georeference'],
         sensors=sensors,
@@ -185,13 +210,40 @@ def _launch_setup(context, *args, **kwargs):
         init_yaw_deg=float(LaunchConfiguration('yaw_deg').perform(context)),
     )
 
+    if which == 'parking_garage':
+        grid_yaml = os.path.join(pkg, 'maps', 'parking_garage_ground.yaml')
+        with open(grid_yaml) as f:
+            grid = yaml.safe_load(f)
+        w_px, h_px = _read_pgm_size(os.path.join(os.path.dirname(grid_yaml), grid['image']))
+        ox, oy = grid['origin'][0], grid['origin'][1]
+        res = grid['resolution']
+
+        # Mallado del parking de Gazebo como modelo visual (no se copia: es GPL, se usa el instalado).
+        garage_mesh = None
+        if _truthy(context, 'garage_visual'):
+            mesh = os.path.join(get_package_share_directory('caddy_ai2_ros2_gazebo_simulation'), 'description',
+                                'models', 'parking_garage', 'meshes', 'parking_garage.dae')
+            if os.path.isfile(mesh):
+                garage_mesh = mesh
+            else:
+                print('[sim_mvsim] AVISO: no se encuentra el mallado del parking, sin modelo visual:', mesh)
+        world.update(
+            garage_mesh=garage_mesh, grid_yaml=grid_yaml,
+            floor=dict(x_min=ox, y_min=oy, x_max=ox + w_px * res, y_max=oy + h_px * res))
+        world_tpl = 'parking_garage.world.xml.j2'
+    elif which == 'road_circuit':
+        world.update(scenario=_circuit_scenario(mvsim), video=_video(context, None), cam_distance=30)
+        world_tpl = 'road_circuit.world.xml.j2'
+    else:
+        raise RuntimeError("world debe ser 'parking_garage' o 'road_circuit', no '%s'" % which)
+
     env = Environment(loader=FileSystemLoader(os.path.join(pkg, 'mvsim')),
                       undefined=StrictUndefined, keep_trailing_newline=True)
     out_dir = tempfile.mkdtemp(prefix='caddy_ai2_mvsim_')
-    for tpl, ctx in (('caddy_ai2.vehicle.xml.j2', params), ('parking_garage.world.xml.j2', world)):
+    for tpl, ctx in (('caddy_ai2.vehicle.xml.j2', params), (world_tpl, world)):
         with open(os.path.join(out_dir, tpl[:-3]), 'w') as f:
             f.write(env.get_template(tpl).render(**ctx))
-    world_file = os.path.join(out_dir, 'parking_garage.world.xml')
+    world_file = os.path.join(out_dir, world_tpl[:-3])
     print('[sim_mvsim] mundo generado en', world_file)
 
     remaps, aliases = _interface(sensors) if compat else ([], [])
@@ -239,8 +291,24 @@ def generate_launch_description():
         return DeclareLaunchArgument(name, default_value=default, description=desc)
 
     return LaunchDescription([
+        arg('world', 'parking_garage', "Mundo: 'parking_garage' (planta baja) o 'road_circuit' (demo_road_circuit1 de MVSim)"),
+        arg('video_output', '', 'Si no esta vacio, graba la vista 3D: archivo .mp4 (necesita ffmpeg) o patron de '
+                                'fotogramas, p. ej. /ruta/f_%06d.jpg (no necesita ffmpeg)'),
+        arg('video_fps', '15', 'Fotogramas por segundo del video'),
+        arg('video_width', '1280', 'Ancho del video'),
+        arg('video_height', '720', 'Alto del video'),
+        arg('video_start', '1.0', 'Segundo de simulacion en que empieza a grabar'),
+        arg('video_duration', '0', 'Segundos de simulacion a grabar (0 = hasta parar)'),
+        arg('video_close_when_done', 'False', 'Cierra el simulador al terminar la grabacion'),
+        arg('video_cam_distance', '12', 'Distancia de la camara al Caddy (m)'),
+        arg('video_cam_azimuth', '-150', 'Acimut de la camara respecto al rumbo del Caddy (grados)'),
+        arg('video_cam_elevation', '22', 'Elevacion de la camara (grados)'),
+        arg('video_fov', '60', 'Campo de vision de la camara del video (grados)'),
         arg('gazebo_compat', 'True', 'Misma interfaz que Gazebo: nombres de topics (remapeos), TF (URDF + '
                                       'alias), profundidad 32FC1, mando y odometria. Con False, MVSim crudo'),
+        arg('chassis_visual', 'True', 'Dibuja la carroceria 3D del Caddy (puede tapar la vista del Helios)'),
+        arg('garage_visual', 'False', 'Solo parking_garage. Dibuja el mallado 3D del parking (solo visual). Con True el Helios pierde media \n'
+                                            'circunferencia cuando esta en y ~ 0 (causa sin identificar): por eso False'),
         arg('headless', 'False', 'Sin GUI (renderizado EGL en la GPU)'),
         arg('do_fake_localization', 'False', 'Publica map -> odom desde la verdad de terreno (Gazebo no lo '
                                               'hace: lo da el localizador)'),
