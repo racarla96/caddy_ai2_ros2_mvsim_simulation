@@ -1,0 +1,87 @@
+# Controladores ros2_control del Caddy AI2 para MVSim (control:=ros2_control). Se renderiza al lanzar.
+#
+# Es la MISMA cadena que usa la simulacion de Gazebo (caddy_ai2_ros2_gazebo_simulation/bringup/config/
+# controllers_simulation.yaml.j2) y el vehiculo real:
+#
+#   /caddy_ai2/bicycle_steering_controller/reference (TwistStamped)
+#     -> bicycle_steering_controller            (odometria y TF odom -> base_footprint)
+#          -> bicycle_to_ackermann_traction_adapter  -> rear_{right,left}_wheel_joint        (velocidad)
+#          -> bicycle_to_ackermann_steering_adapter  -> front_{right,left}_wheel_steer_joint (posicion)
+#
+# Los nombres de junta deben coincidir con los atributos joint_name / steering_joint_name de las ruedas de
+# mvsim/caddy_ai2.vehicle.xml.j2 (que son los de la URDF real). La geometria sale de robot_params.yaml, igual que el XML.
+# "/**/" aplica los parametros en cualquier namespace (aqui /caddy_ai2). update_rate: debe dividir la frecuencia de simulacion
+# (MVSim usa 200 Hz: paso de 5 ms) y los adaptadores no pueden ir mas rapido que el gestor.
+/**/controller_manager:
+  ros__parameters:
+    update_rate: 100
+    use_sim_time: true
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+{%- if steering_mode == 'ackermann' %}
+    bicycle_to_ackermann_steering_adapter:
+      type: bicycle_to_ackermann_steering_adapter/BicycleToAckermannSteeringAdapter
+{%- endif %}
+    bicycle_to_ackermann_traction_adapter:
+      type: bicycle_to_ackermann_traction_adapter/BicycleToAckermannTractionAdapter
+    bicycle_steering_controller:
+      type: bicycle_steering_controller/BicycleSteeringController
+
+/**/joint_state_broadcaster:
+  ros__parameters:
+    use_sim_time: true
+
+/**/bicycle_steering_controller:
+  ros__parameters:
+    use_sim_time: true
+    wheelbase: {{ wheelbase }}
+    traction_wheel_radius: {{ wheel_radius }}
+    reference_timeout: 2.0
+    traction_joints_names:
+      - bicycle_to_ackermann_traction_adapter/center_traction_joint
+    steering_joints_names:
+{%- if steering_mode == 'ackermann' %}
+      - bicycle_to_ackermann_steering_adapter/center_steering_joint
+{%- else %}
+      - steering_joint          # junta virtual de MVSim (steering_mode=bicycle): el angulo equivalente, sin adaptador de direccion
+{%- endif %}
+    open_loop: false
+    velocity_rolling_window_size: 10
+    base_frame_id: base_footprint
+    odom_frame_id: odom
+    enable_odom_tf: true
+    # [x/vx, y/vy, z/vz, roll/wx, pitch/wy, yaw/wz]. No ceros: el EKF y EasyNav esperan una odometria con ruido.
+    twist_covariance_diagonal: [0.1, 0.001, 0.0, 0.0, 0.0, 0.1]
+    pose_covariance_diagonal:  [0.1, 0.1,   0.0, 0.0, 0.0, 0.1]
+    position_feedback: false
+
+{% if steering_mode == 'ackermann' %}
+/**/bicycle_to_ackermann_steering_adapter:
+  ros__parameters:
+    use_sim_time: true
+    update_rate: 25
+    wheelbase: {{ wheelbase }}
+    track_width: {{ track_width }}
+    max_steer_angle: {{ max_steer_angle }}
+    input_steering_name: center_steering_joint
+    output_steering_names:
+      - front_right_wheel_steer_joint
+      - front_left_wheel_steer_joint
+{% endif %}
+
+/**/bicycle_to_ackermann_traction_adapter:
+  ros__parameters:
+    use_sim_time: true
+    update_rate: 50
+    wheelbase: {{ wheelbase }}
+    track_width: {{ track_width }}
+    wheel_radius: {{ wheel_radius }}
+{%- if steering_mode == 'ackermann' %}
+    input_steering_name: bicycle_to_ackermann_steering_adapter/center_steering_joint
+{%- else %}
+    input_steering_name: steering_joint
+{%- endif %}
+    input_traction_name: center_traction_joint
+    output_traction_names:
+      - rear_right_wheel_joint
+      - rear_left_wheel_joint

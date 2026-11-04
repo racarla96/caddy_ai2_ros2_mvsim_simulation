@@ -35,7 +35,8 @@ from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, OpaqueFunction
+from launch.actions import DeclareLaunchArgument, OpaqueFunction, RegisterEventHandler
+from launch.event_handlers import OnProcessExit
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
@@ -183,6 +184,14 @@ def _launch_setup(context, *args, **kwargs):
     desc = get_package_share_directory('caddy_ai2_ros2_description')
     mvsim = get_package_share_directory('mvsim')
     compat = _truthy(context, 'gazebo_compat')
+    control = LaunchConfiguration('control').perform(context).strip()
+    if control not in ('builtin', 'ros2_control'):
+        raise RuntimeError("control debe ser 'builtin' o 'ros2_control', no '%s'" % control)
+    steering_mode = LaunchConfiguration('steering_mode').perform(context).strip()
+    if steering_mode not in ('ackermann', 'bicycle'):
+        raise RuntimeError("steering_mode debe ser 'ackermann' o 'bicycle', no '%s'" % steering_mode)
+    out_dir = tempfile.mkdtemp(prefix='caddy_ai2_mvsim_')
+    ctrl_yaml = os.path.join(out_dir, 'ros2_control_controllers.yaml')
 
     robot_params_path = os.path.join(desc, 'bringup', 'config', 'robot_params.yaml')
     with open(robot_params_path) as f:
@@ -199,6 +208,17 @@ def _launch_setup(context, *args, **kwargs):
                       if _truthy(context, 'chassis_visual') else None),
     )
     params.pop('sensors', None)
+    with open(os.path.join(pkg, 'config', 'mvsim_vehicle.yaml')) as f:
+        veh = yaml.safe_load(f)['ros2_control']
+    params.update(control=control, steering_mode=steering_mode, controllers_yaml=ctrl_yaml, wheel_kp=veh['wheel_pid']['kp'],
+                  wheel_ki=veh['wheel_pid']['ki'], wheel_max_torque=veh['wheel_pid']['max_torque'],
+                  max_steer_rate_deg=veh['max_steer_rate_deg'])
+    if control == 'ros2_control':
+        # YAML de la misma cadena de controladores que Gazebo y el vehiculo real, con la geometria de robot_params.yaml
+        cenv = Environment(loader=FileSystemLoader(os.path.join(pkg, 'config')), undefined=StrictUndefined,
+                           keep_trailing_newline=True)
+        with open(ctrl_yaml, 'w') as f:
+            f.write(cenv.get_template('ros2_control_controllers.yaml.j2').render(steering_mode=steering_mode, **rp))
     sensors = _sensors(rp, cfg)
 
     world = dict(
@@ -239,7 +259,6 @@ def _launch_setup(context, *args, **kwargs):
 
     env = Environment(loader=FileSystemLoader(os.path.join(pkg, 'mvsim')),
                       undefined=StrictUndefined, keep_trailing_newline=True)
-    out_dir = tempfile.mkdtemp(prefix='caddy_ai2_mvsim_')
     for tpl, ctx in (('caddy_ai2.vehicle.xml.j2', params), (world_tpl, world)):
         with open(os.path.join(out_dir, tpl[:-3]), 'w') as f:
             f.write(env.get_template(tpl).render(**ctx))
@@ -261,8 +280,38 @@ def _launch_setup(context, *args, **kwargs):
                  namespace=NS, output='screen', parameters=[{'robot_description': urdf}]),
             Node(package='caddy_ai2_ros2_mvsim_simulation', executable='gazebo_compat_adapter.py',
                  name='gazebo_compat_adapter', output='screen',
-                 parameters=[{'namespace': NS, 'prefix': '', 'frame_aliases': aliases}]),
+                 parameters=[{'namespace': NS, 'prefix': '', 'frame_aliases': aliases,
+                              # con ros2_control, la odometria, su TF y el mando son los del propio controlador
+                              'republish_odom': control != 'ros2_control',
+                              'convert_cmd': control != 'ros2_control'}]),
         ]
+
+    if control == 'ros2_control':
+        # Mismo orden que en Gazebo: cada spawner arranca cuando termina el anterior (los controladores encadenables
+        # exportan sus interfaces de referencia al configurarse, y los de abajo deben existir antes).
+        def spawner(name, ros_args=None):
+            args = [name, '--param-file', ctrl_yaml, '--controller-manager-timeout', '120']
+            if ros_args:
+                args += ['--controller-ros-args', ros_args]
+            return Node(package='controller_manager', executable='spawner', namespace=NS, output='screen',
+                        arguments=args)
+        s_jsb = spawner('joint_state_broadcaster')
+        s_st = spawner('bicycle_to_ackermann_steering_adapter')
+        s_tr = spawner('bicycle_to_ackermann_traction_adapter')
+        # El TF de odometria (odom -> base_footprint) del bicycle_steering_controller va a /tf, como en Gazebo (alli lo hace
+        # el plugin de ros2_control). Los controladores lo publican en ~/tf_odometry: el remapeo se le da al controlador
+        # (en Jazzy, --controller-ros-args del spawner; remapearlo en mvsim_node no le llega).
+        s_bi = spawner('bicycle_steering_controller',
+                       ros_args='-r /%s/bicycle_steering_controller/tf_odometry:=/tf' % NS)
+        if steering_mode == 'ackermann':
+            actions += [s_jsb,
+                        RegisterEventHandler(OnProcessExit(target_action=s_jsb, on_exit=[s_st])),
+                        RegisterEventHandler(OnProcessExit(target_action=s_st, on_exit=[s_tr])),
+                        RegisterEventHandler(OnProcessExit(target_action=s_tr, on_exit=[s_bi]))]
+        else:   # bicycle: MVSim reparte el angulo a las dos ruedas, no hace falta el adaptador de direccion
+            actions += [s_jsb,
+                        RegisterEventHandler(OnProcessExit(target_action=s_jsb, on_exit=[s_tr])),
+                        RegisterEventHandler(OnProcessExit(target_action=s_tr, on_exit=[s_bi]))]
 
     actions.append(Node(
         package='mvsim', executable='mvsim_node', name='mvsim', output='screen',
@@ -291,6 +340,11 @@ def generate_launch_description():
         return DeclareLaunchArgument(name, default_value=default, description=desc)
 
     return LaunchDescription([
+        arg('control', 'builtin', "Control del vehiculo: 'builtin' (cmd_vel -> controlador twist de MVSim) o 'ros2_control' "
+                                  "(la pila real: bicycle_steering_controller -> adaptadores -> juntas; necesita la rama "
+                                  "feature/ros2-control-ackermann de MVSim)"),
+        arg('steering_mode', 'ackermann', "Solo con control:=ros2_control. 'ackermann': dos juntas de direccion (FL, FR) con el adaptador "
+                                         "bicycle->ackermann; 'bicycle': una junta virtual con el angulo equivalente (sin adaptador de direccion)"),
         arg('world', 'parking_garage', "Mundo: 'parking_garage' (planta baja) o 'road_circuit' (demo_road_circuit1 de MVSim)"),
         arg('video_output', '', 'Si no esta vacio, graba la vista 3D: archivo .mp4 (necesita ffmpeg) o patron de '
                                 'fotogramas, p. ej. /ruta/f_%06d.jpg (no necesita ffmpeg)'),

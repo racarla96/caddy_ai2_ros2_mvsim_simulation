@@ -13,13 +13,14 @@
 {%- set half_w  = vehicle_collision_width / 2.0 %}
 <vehicle:class name="caddy_ai2">
     <dynamics class="ackermann">
-        <!-- Rueda trasera: pos = "x y" respecto al origen del vehiculo -->
-        <rl_wheel pos="{{ -half_wb }}  {{  track_width / 2.0 }}" mass="{{ wheel_mass }}" width="{{ wheel_width }}" diameter="{{ 2 * wheel_radius }}" />
-        <rr_wheel pos="{{ -half_wb }}  {{ -track_width / 2.0 }}" mass="{{ wheel_mass }}" width="{{ wheel_width }}" diameter="{{ 2 * wheel_radius }}" />
+        <!-- Rueda trasera: pos = "x y" respecto al origen del vehiculo. joint_name / steering_joint_name: nombres de junta de
+             la URDF real del Caddy (con ros2_control, MVSim ata las juntas a las ruedas por nombre) -->
+        <rl_wheel pos="{{ -half_wb }}  {{  track_width / 2.0 }}" mass="{{ wheel_mass }}" width="{{ wheel_width }}" diameter="{{ 2 * wheel_radius }}" joint_name="rear_left_wheel_joint" />
+        <rr_wheel pos="{{ -half_wb }}  {{ -track_width / 2.0 }}" mass="{{ wheel_mass }}" width="{{ wheel_width }}" diameter="{{ 2 * wheel_radius }}" joint_name="rear_right_wheel_joint" />
 
         <!-- Ruedas delanteras: su posicion sale de f_wheels_x (eje) y f_wheels_d (separacion) -->
-        <fl_wheel mass="{{ wheel_mass }}" width="{{ wheel_width }}" diameter="{{ 2 * wheel_radius }}" />
-        <fr_wheel mass="{{ wheel_mass }}" width="{{ wheel_width }}" diameter="{{ 2 * wheel_radius }}" />
+        <fl_wheel mass="{{ wheel_mass }}" width="{{ wheel_width }}" diameter="{{ 2 * wheel_radius }}" joint_name="front_left_wheel_joint" steering_joint_name="front_left_wheel_steer_joint" />
+        <fr_wheel mass="{{ wheel_mass }}" width="{{ wheel_width }}" diameter="{{ 2 * wheel_radius }}" joint_name="front_right_wheel_joint" steering_joint_name="front_right_wheel_steer_joint" />
         <f_wheels_x>{{ half_wb }}</f_wheels_x>
         <f_wheels_d>{{ track_width }}</f_wheels_d>
 
@@ -35,6 +36,20 @@
             </shape>
         </chassis>
 
+{% if control == 'ros2_control' %}
+        <!-- Control por ros2_control (rama feature/ros2-control-ackermann de MVSim): la pila real del Caddy
+             (bicycle_steering_controller -> adaptadores -> juntas) corre sin cambios. Traccion por rueda con un PID de
+             velocidad interno; direccion por posicion en las dos juntas (FL, FR), como producen los adaptadores.
+             Ganancias PROVISIONALES (escaladas de la demo de MVSim por masa y radio de rueda): ajustarlas con el vehiculo real. -->
+        <max_steer_rate_deg>{{ max_steer_rate_deg }}</max_steer_rate_deg>
+        <controller class="ros2_control">
+            <command_interface>velocity</command_interface>
+            <KP>{{ wheel_kp }}</KP> <KI>{{ wheel_ki }}</KI> <KD>0</KD> <max_torque>{{ wheel_max_torque }}</max_torque>
+            <steering_mode>{{ steering_mode }}</steering_mode>  <!-- ackermann: juntas FL y FR; bicycle: una junta virtual (steering_joint) con el angulo equivalente -->
+            <controllers_yaml>{{ controllers_yaml }}</controllers_yaml>
+            <robot_description>generated</robot_description>
+        </controller>
+{% else %}
         <!-- Control de velocidad y direccion por twist (cmd_vel). Ganancias heredadas del esqueleto
              anterior; hay que ajustarlas con el vehiculo real (mvsim-pid-tuner llega en la 2.0). -->
         <controller class="twist_front_steer_pid">
@@ -48,6 +63,7 @@
             <rear_left_right_split>0.5</rear_left_right_split>
             <rear_left_right_bias>0.0</rear_left_right_bias>
         </drivetrain>
+{% endif %}
     </dynamics>
 
     <friction class="default">

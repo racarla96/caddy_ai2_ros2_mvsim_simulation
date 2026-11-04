@@ -96,6 +96,63 @@ unificada (`ground_truth/odometry` y `bicycle_steering_controller/reference`). L
 más cerradas que el radio de giro del Caddy (~3,9 m): toma arcos de 6 m y se sale un poco de la calzada. Las
 barandillas del puente están desactivadas en el propio demo ("TODO: fix collisions at different heights").
 
+## Control con ros2_control: la pila real del Caddy sobre MVSim
+
+Con `control:=ros2_control` el vehículo no usa el controlador `cmd_vel` de MVSim: corre **la misma cadena de ros2_control que
+el vehículo real y que Gazebo**, sin cambios:
+
+```
+/caddy_ai2/bicycle_steering_controller/reference (TwistStamped)
+  -> bicycle_steering_controller                    odometría y TF odom -> base_footprint
+       -> bicycle_to_ackermann_traction_adapter     -> rear_{right,left}_wheel_joint         (velocidad)
+       -> bicycle_to_ackermann_steering_adapter     -> front_{right,left}_wheel_steer_joint  (posición)
+```
+
+```bash
+ros2 launch caddy_ai2_ros2_mvsim_simulation sim_mvsim.launch.py world:=road_circuit control:=ros2_control
+ros2 launch ... control:=ros2_control steering_mode:=bicycle      # una junta virtual en vez de las dos de las ruedas
+python3 tools/validate_ros2_control.py --ns /caddy_ai2 ...        # ver la cabecera del script
+```
+
+**Necesita MVSim con la rama `feature/ros2-control-ackermann`** (fork `racarla96/mvsim`; el issue es MRPT/mvsim#167, todavía sin PR):
+ni MVSim 1.5.0 (`apt`) ni la 2.0.0 traen ros2_control para Ackermann (la 2.0.0 solo para diferenciales). Compila con MRPT 3.3.1
+(el de `apt`) y `hardware_interface` 4.48 ("current API"), sin hacer falta MRPT 3.6.1; los 60 tests de la rama pasan:
+
+```bash
+git clone -b feature/ros2-control-ackermann https://github.com/racarla96/mvsim.git && cd mvsim && git submodule update --init
+colcon build --packages-select mvsim --cmake-args -DCMAKE_BUILD_TYPE=Release     # debe decir "ros2_control support enabled"
+```
+
+Cómo está montado:
+- `mvsim/caddy_ai2.vehicle.xml.j2`: cada rueda lleva `joint_name` y `steering_joint_name` con los nombres de la URDF real del Caddy;
+  el `<controller class="ros2_control">` pide tracción por velocidad (un PID interno por rueda) y `steering_mode`.
+  MVSim ata las juntas a las ruedas por nombre; la descripción del robot es la `generated` por MVSim.
+- `config/ros2_control_controllers.yaml.j2`: réplica de la de Gazebo (`controllers_simulation.yaml.j2`), con la geometría de
+  `robot_params.yaml` y `use_sim_time`. Los spawners arrancan en cadena, en el mismo orden que en Gazebo.
+- El TF de odometría del `bicycle_steering_controller` va a `/tf` con `--controller-ros-args` del spawner (como hace en Gazebo el
+  plugin con su remapeo); remapearlo en `mvsim_node` no le llega al controlador.
+- `scripts/gazebo_compat_adapter.py` queda reducido a los alias de frame (la odometría y el mando ya los da la cadena real).
+- `config/mvsim_vehicle.yaml`: PID de velocidad por rueda (kp 1430, ki 300, par máximo 300 N·m) y velocidad de giro de la dirección.
+  **Provisionales**: escalados de la demo de MVSim por masa y radio de rueda; ajustarlos con el vehículo real.
+
+Verificado en el laboratorio (MVSim con la rama, `road_circuit`, headless). Odometría del controlador frente a la verdad del simulador:
+
+| | Recta (1 m/s, 6 s) | Curva a izquierdas (v 1, w 0,3; 8 s) | Reparto en la curva |
+|---|---|---|---|
+| Demo de referencia de MVSim | 5,9995 m frente a 5,9996 m (−0,00 %) | +0,58 %; error de posición 0,076 m; yaw +1,08° | dirección int. 29,1° > ext. 16,7°; tracción int. 2,24 < ext. 4,17 rad/s |
+| Caddy, `ackermann` | −0,60 %; error 3,6 cm | −0,15 %; error 3,8 cm; yaw −0,26° | dirección int. 25,6° > ext. 20,7°; tracción int. 3,71 < ext. 4,68 rad/s |
+| Caddy, `bicycle` | −0,91 %; error 5,3 cm | −0,21 %; error 3,0 cm; yaw −0,21° | tracción int. 3,71 < ext. 4,68 rad/s |
+
+Notas:
+- La odometría de `bicycle_steering_controller` es la del **eje trasero**, mientras el origen del Caddy en MVSim está a mitad de la
+  distancia entre ejes (0,825 m por delante): para compararla con la verdad hay que trasladarla (`--gt-offset-x -0.825` en el script).
+  Sin eso, en una curva de 108° el "error" sale ~1,4 m; no es del simulador.
+- Con `ki: 29` el PID de velocidad se quedaba un 5,6 % por debajo del comando en una recta de 6 s; con `ki: 300`, un 1,6 %.
+- En modo `bicycle`, `steering_joint` aparece en `/dynamic_joint_states` pero no en `/joint_states` (posible filtro de URDF del
+  `joint_state_broadcaster`; no comprobado). La odometría funciona, así que el controlador sí lo lee.
+- No verificado: Humble (la API antigua de ros2_control compila por `#if` pero nunca se ejecutó), `<mimic>` (no está implementado en
+  `MvsimSystem`; para eso están los adaptadores) y `robot_description:=urdf` con la URDF del Caddy.
+
 ### EasyNav 3D en el circuito
 
 ```bash

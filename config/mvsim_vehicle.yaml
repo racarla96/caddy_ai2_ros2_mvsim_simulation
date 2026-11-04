@@ -1,0 +1,15 @@
+# Parametros del vehiculo en MVSim que NO estan en robot_params.yaml (el resto: distancia entre ejes, via, radio de rueda,
+# direccion maxima, masas y caja de colision, salen de caddy_ai2_ros2_description/bringup/config/robot_params.yaml).
+#
+# Solo se usan con control:=ros2_control. TODOS PROVISIONALES: hay que ajustarlos con el vehiculo real.
+
+ros2_control:
+  # PID de velocidad de cada rueda motriz (MVSim lo calcula internamente: el comando es una velocidad en rad/s y el
+  # resultado un par). Escalados de la demo de MVSim (KP 2550, KI 51, par 287 para 800 kg y rueda de 0,31 m) por
+  # masa x radio (590 x 0,235 frente a 800 x 0,31 = 0,56). El par maximo cubre ~1,5 m/s^2 mas la colina de 14 grados.
+  wheel_pid:
+    kp: 1430.0
+    ki: 300.0
+    max_torque: 300.0          # N*m por rueda trasera
+  # Velocidad maxima de giro de las ruedas directrices (grados/s). 0 = instantanea. La real depende del actuador.
+  max_steer_rate_deg: 60.0

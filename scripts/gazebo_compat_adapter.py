@@ -18,8 +18,12 @@ Este nodo hace solo lo que los remapeos no pueden, y solo con mensajes pequenos:
      base_link esta en el suelo: es el base_footprint de Gazebo).
   3. bicycle_steering_controller/reference (TwistStamped) -> cmd_vel (Twist, MVSim).
 
+Con control:=ros2_control (MVSim con la rama de ros2_control para Ackermann) los puntos 2 y 3 los hace la pila real del Caddy
+(bicycle_steering_controller + adaptadores) y este nodo solo publica los alias de frame (republish_odom y convert_cmd a false).
+
 Parametros:
   frame_aliases: lista de "padre->hijo" (enlace URDF -> frame de MVSim), la genera el launch.
+  republish_odom, convert_cmd: ver arriba (por defecto True).
   namespace, prefix.
 """
 import rclpy
@@ -41,20 +45,28 @@ class GazeboCompatAdapter(Node):
         self.declare_parameter('namespace', 'caddy_ai2')
         self.declare_parameter('prefix', '')
         self.declare_parameter('frame_aliases', [''])
+        self.declare_parameter('republish_odom', True)
+        self.declare_parameter('convert_cmd', True)
         ns = self.get_parameter('namespace').value
         self.prefix = self.get_parameter('prefix').value
         self.ns = '/' + ns + '/' if ns else '/'
 
         self._publish_aliases(self.get_parameter('frame_aliases').value)
 
-        self.pub_odom = self.create_publisher(Odometry, self.ns + 'bicycle_steering_controller/odometry', OUT_QOS)
-        self.pub_tf = self.create_publisher(TFMessage, '/tf', 100)
-        self.create_subscription(Odometry, self.ns + 'odom', self._on_odom, SENSOR_QOS_IN)
-
-        self.pub_cmd = self.create_publisher(Twist, self.ns + 'cmd_vel', 10)
-        self.create_subscription(TwistStamped, self.ns + 'bicycle_steering_controller/reference',
-                                 lambda m: self.pub_cmd.publish(m.twist), 10)
-        self.get_logger().info('Adaptador listo: odometria, mando y %d alias de frame' % self.n_alias)
+        # Con control:=builtin, MVSim no tiene la cadena de controladores: este nodo hace de ella (odometria + TF y mando).
+        # Con control:=ros2_control la pila real ya lo hace (bicycle_steering_controller): aqui solo quedan los alias de frame.
+        self.republish_odom = self.get_parameter('republish_odom').value
+        self.convert_cmd = self.get_parameter('convert_cmd').value
+        if self.republish_odom:
+            self.pub_odom = self.create_publisher(Odometry, self.ns + 'bicycle_steering_controller/odometry', OUT_QOS)
+            self.pub_tf = self.create_publisher(TFMessage, '/tf', 100)
+            self.create_subscription(Odometry, self.ns + 'odom', self._on_odom, SENSOR_QOS_IN)
+        if self.convert_cmd:
+            self.pub_cmd = self.create_publisher(Twist, self.ns + 'cmd_vel', 10)
+            self.create_subscription(TwistStamped, self.ns + 'bicycle_steering_controller/reference',
+                                     lambda m: self.pub_cmd.publish(m.twist), 10)
+        self.get_logger().info('Adaptador listo: %d alias de frame%s%s' % (
+            self.n_alias, ', odometria+TF' if self.republish_odom else '', ', mando' if self.convert_cmd else ''))
 
     def _publish_aliases(self, aliases):
         msgs = []

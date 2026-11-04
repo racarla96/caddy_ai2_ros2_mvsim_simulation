@@ -9,7 +9,14 @@
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
+  <!-- MVSim >= 2.0; con control:=ros2_control, la rama feature/ros2-control-ackermann de racarla96/mvsim (ver README) -->
   <exec_depend>mvsim</exec_depend>
+  <!-- control:=ros2_control: la misma cadena que el vehiculo real y que Gazebo -->
+  <exec_depend>controller_manager</exec_depend>
+  <exec_depend>joint_state_broadcaster</exec_depend>
+  <exec_depend>bicycle_steering_controller</exec_depend>
+  <exec_depend>caddy_ai2_ros2_bicycle_to_ackermann_steering_adapter</exec_depend>
+  <exec_depend>caddy_ai2_ros2_bicycle_to_ackermann_traction_adapter</exec_depend>
   <!-- robot_params.yaml: single source of truth shared with the Gazebo simulation -->
   <exec_depend>caddy_ai2_ros2_description</exec_depend>
   <!-- parking garage mesh (visual model for the 3D sensors) -->
