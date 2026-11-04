@@ -3,11 +3,20 @@
 <package format="3">
   <name>caddy_ai2_ros2_mvsim_simulation</name>
   <version>0.1.0</version>
-  <description>MVSim simulation package for the Caddy AI2 agricultural robot.</description>
+  <description>MVSim simulation of the Caddy AI2 golf cart (vehicle-testing platform) in the ground floor of the parking garage.</description>
   <maintainer email="rafapenya96@gmail.com">Rafael Carbonell Lázaro</maintainer>
   <license>CC-BY-4.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <exec_depend>mvsim</exec_depend>
+  <!-- robot_params.yaml: single source of truth shared with the Gazebo simulation -->
+  <exec_depend>caddy_ai2_ros2_description</exec_depend>
+  <exec_depend>python3-jinja2</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

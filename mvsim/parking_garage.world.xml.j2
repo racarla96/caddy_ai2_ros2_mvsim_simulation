@@ -1,0 +1,121 @@
+<!--
+  Mundo MVSim: Caddy AI2 en la planta baja del parking.
+
+  Se genera al lanzar (sim_mvsim.launch.py) con jinja2. No editar a mano el XML generado.
+
+  MVSim tiene fisica 2D: solo se simula la planta baja. Las colisiones y el lidar 2D salen del
+  mapa de ocupacion maps/parking_garage_ground.yaml (hecho con tools/make_garage_grid.py a partir de
+  un PCD de la planta baja). Las rampas y las otras plantas no estan.
+-->
+<mvsim_world version="1.0">
+    <gui>
+        <ortho>false</ortho>
+        <show_forces>false</show_forces>
+        <cam_distance>40</cam_distance>
+        <fov_deg>60</fov_deg>
+        <refresh_fps>30</refresh_fps>
+        <follow_vehicle>caddy_ai2</follow_vehicle>
+    </gui>
+
+    <!-- Georreferencia del origen del mundo (config/mvsim_sensors.yaml: georeference). El GNSS la necesita. -->
+    <georeference>
+        <latitude>{{ georef.latitude }}</latitude>
+        <longitude>{{ georef.longitude }}</longitude>
+        <height>{{ georef.height }}</height>
+        <world_to_enu_rotation_deg>{{ georef.world_to_enu_rotation_deg }}</world_to_enu_rotation_deg>
+    </georeference>
+
+    <!-- Paredes, pilares y coches de la planta baja -->
+    <element class="occupancy_grid">
+        <file>{{ grid_yaml }}</file>
+    </element>
+
+    <!-- Suelo (el lidar 3D y las camaras necesitan ver el suelo) -->
+    <element class="horizontal_plane">
+        <x_min>{{ floor.x_min }}</x_min> <y_min>{{ floor.y_min }}</y_min>
+        <x_max>{{ floor.x_max }}</x_max> <y_max>{{ floor.y_max }}</y_max>
+        <z>0.0</z>
+    </element>
+
+    <include file="caddy_ai2.vehicle.xml" />
+
+    <vehicle name="caddy_ai2" class="caddy_ai2">
+        <init_pose>{{ init_x }} {{ init_y }} {{ init_yaw_deg }}</init_pose>  <!-- x, y, yaw(grados) en el mundo -->
+
+{% for s in sensors %}
+{%- if s.kind == 'imu' %}
+        <include file="{{ defs }}/imu.sensor.xml"
+            sensor_name="{{ s.mvsim_name }}"
+            sensor_x="{{ s.x }}" sensor_y="{{ s.y }}" sensor_z="{{ s.z }}"
+            sensor_yaw="{{ s.yaw_deg }}" sensor_pitch="{{ s.pitch_deg }}" sensor_roll="{{ s.roll_deg }}"
+            sensor_period_sec="{{ 1.0 / s.update_rate }}"
+            sensor_angular_velocity_white_noise_std_noise="{{ s.gyro_stddev }}"
+            sensor_linear_acceleration_white_noise_std_noise="{{ s.accel_stddev }}"
+            sensor_measure_orientation="{{ 'true' if s.measure_orientation else 'false' }}"
+            sensor_custom_visual="false"
+        />
+{%- elif s.kind == 'gps' %}
+        <include file="{{ defs }}/gnss.sensor.xml"
+            sensor_name="{{ s.mvsim_name }}"
+            sensor_x="{{ s.x }}" sensor_y="{{ s.y }}" sensor_z="{{ s.z }}"
+            sensor_period_sec="{{ 1.0 / s.update_rate }}"
+            sensor_horizontal_std_noise="{{ s.horizontal_stddev }}"
+            sensor_vertical_std_noise="{{ s.vertical_stddev }}"
+            sensor_custom_visual="false"
+        />
+{%- elif s.kind == 'lidar_2d' %}
+        <include file="{{ defs }}/lidar2d.sensor.xml"
+            sensor_name="{{ s.mvsim_name }}"
+            sensor_x="{{ s.x }}" sensor_y="{{ s.y }}" sensor_z="{{ s.z }}" sensor_yaw="{{ s.yaw_deg }}"
+            sensor_period_sec="{{ 1.0 / s.update_rate }}"
+            fov_degrees="{{ s.fov_degrees }}" sensor_nrays="{{ s.nrays }}"
+            sensor_std_noise="{{ s.range_stddev }}"
+            max_range="{{ s.range_max }}"
+            raytrace_3d="{{ 'true' if s.raytrace_3d else 'false' }}"
+            sensor_custom_visual="false"
+            viz_visiblePoints="false"
+        />
+{%- elif s.kind == 'lidar_3d' %}
+        <!-- Helios de 32 canales y 70 grados que trae MVSim -->
+        <include file="{{ defs }}/helios-32-FOV-70.sensor.xml"
+            sensor_name="{{ s.mvsim_name }}"
+            sensor_x="{{ s.x }}" sensor_y="{{ s.y }}" sensor_z="{{ s.z }}"
+            sensor_yaw="{{ s.yaw_deg }}" sensor_pitch="{{ s.pitch_deg }}" sensor_roll="{{ s.roll_deg }}"
+            sensor_rate="{{ s.update_rate }}"
+            sensor_std_noise="{{ s.range_stddev }}"
+            min_range="{{ s.range_min }}" max_range="{{ s.range_max }}"
+        />
+{%- elif s.kind == 'camera_rgbd' %}
+        <sensor class="rgbd_camera" name="{{ s.mvsim_name }}">
+            <pose_3d>{{ s.x }} {{ s.y }} {{ s.z }} {{ s.yaw_deg }} {{ s.pitch_deg }} {{ s.roll_deg }}</pose_3d>
+            <!-- el RGB sigue la convencion +Z adelante; la profundidad, +X adelante -->
+            <relativePoseIntensityWRTDepth>0.0 0.0 0.0  -90.0 0.0 -90.0</relativePoseIntensityWRTDepth>
+            <sensor_period>{{ 1.0 / s.update_rate }}</sensor_period>
+            <sense_depth>true</sense_depth>
+            <sense_rgb>true</sense_rgb>
+            <show_3d_pointcloud>{{ 'true' if s.show_3d_pointcloud else 'false' }}</show_3d_pointcloud>
+            <publish_ros_depth_image>true</publish_ros_depth_image>
+            <publish_ros_colored_pointcloud>true</publish_ros_colored_pointcloud>
+
+            <depth_ncols>{{ s.image_width }}</depth_ncols>
+            <depth_nrows>{{ s.image_height }}</depth_nrows>
+            <depth_cx>{{ s.cx }}</depth_cx> <depth_cy>{{ s.cy }}</depth_cy>
+            <depth_fx>{{ s.fx }}</depth_fx> <depth_fy>{{ s.fx }}</depth_fy>
+            <depth_resolution>1e-3</depth_resolution>
+            <depth_clip_min>{{ s.range_min }}</depth_clip_min>
+            <depth_clip_max>{{ s.range_max }}</depth_clip_max>
+            <depth_noise_sigma>{{ s.depth_stddev }}</depth_noise_sigma>
+
+            <rgb_ncols>{{ s.image_width }}</rgb_ncols>
+            <rgb_nrows>{{ s.image_height }}</rgb_nrows>
+            <rgb_cx>{{ s.cx }}</rgb_cx> <rgb_cy>{{ s.cy }}</rgb_cy>
+            <rgb_fx>{{ s.fx }}</rgb_fx> <rgb_fy>{{ s.fx }}</rgb_fy>
+            <rgb_clip_min>{{ s.range_min }}</rgb_clip_min>
+            <rgb_clip_max>{{ s.range_max }}</rgb_clip_max>
+
+            <visual> <model_uri>{{ defs }}/../models/simple_camera.dae</model_uri> <model_pitch>90</model_pitch> </visual>
+        </sensor>
+{%- endif %}
+{% endfor %}
+    </vehicle>
+</mvsim_world>

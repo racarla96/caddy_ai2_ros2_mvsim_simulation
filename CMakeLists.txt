@@ -28,7 +28,7 @@ if(BUILD_TESTING)
 endif()
 
 install(
-  DIRECTORY launch mvsim rviz meshes
+  DIRECTORY launch mvsim config maps rviz meshes tools
   DESTINATION share/${PROJECT_NAME}
 )
 

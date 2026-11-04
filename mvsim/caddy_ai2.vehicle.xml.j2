@@ -1,0 +1,67 @@
+<!--
+  Clase de vehiculo MVSim del Caddy AI2 (carrito de golf, plataforma de pruebas de vehiculos).
+
+  Se genera al lanzar desde caddy_ai2_ros2_description/bringup/config/robot_params.yaml
+  (misma fuente unica que usa Gazebo). No editar a mano el XML generado.
+
+  Origen del vehiculo = base_link de Gazebo: centro del eje (a wheelbase/2 de cada eje),
+  pero en el suelo (MVSim pone z=0 en el suelo; en Gazebo base_link esta a wheel_radius).
+-->
+{%- set half_wb = wheelbase / 2.0 %}
+{%- set x_front = vehicle_collision_offset_x + vehicle_collision_length / 2.0 %}
+{%- set x_rear  = vehicle_collision_offset_x - vehicle_collision_length / 2.0 %}
+{%- set half_w  = vehicle_collision_width / 2.0 %}
+<vehicle:class name="caddy_ai2">
+    <dynamics class="ackermann">
+        <!-- Rueda trasera: pos = "x y" respecto al origen del vehiculo -->
+        <rl_wheel pos="{{ -half_wb }}  {{  track_width / 2.0 }}" mass="{{ wheel_mass }}" width="{{ wheel_width }}" diameter="{{ 2 * wheel_radius }}" />
+        <rr_wheel pos="{{ -half_wb }}  {{ -track_width / 2.0 }}" mass="{{ wheel_mass }}" width="{{ wheel_width }}" diameter="{{ 2 * wheel_radius }}" />
+
+        <!-- Ruedas delanteras: su posicion sale de f_wheels_x (eje) y f_wheels_d (separacion) -->
+        <fl_wheel mass="{{ wheel_mass }}" width="{{ wheel_width }}" diameter="{{ 2 * wheel_radius }}" />
+        <fr_wheel mass="{{ wheel_mass }}" width="{{ wheel_width }}" diameter="{{ 2 * wheel_radius }}" />
+        <f_wheels_x>{{ half_wb }}</f_wheels_x>
+        <f_wheels_d>{{ track_width }}</f_wheels_d>
+
+        <!-- robot_params.yaml da el limite en rad; MVSim lo quiere en grados -->
+        <max_steer_ang_deg>{{ max_steer_deg }}</max_steer_ang_deg>
+
+        <chassis mass="{{ chassis_mass }}" zmin="{{ vehicle_collision_ground_clearance }}" zmax="{{ vehicle_collision_ground_clearance + vehicle_collision_height }}">
+            <shape>
+                <pt>{{ x_rear  }} {{ -half_w }}</pt>
+                <pt>{{ x_rear  }} {{  half_w }}</pt>
+                <pt>{{ x_front }} {{  half_w }}</pt>
+                <pt>{{ x_front }} {{ -half_w }}</pt>
+            </shape>
+        </chassis>
+
+        <!-- Control de velocidad y direccion por twist (cmd_vel). Ganancias heredadas del esqueleto
+             anterior; hay que ajustarlas con el vehiculo real (mvsim-pid-tuner llega en la 2.0). -->
+        <controller class="twist_front_steer_pid">
+            <KP>1500</KP>  <KI>50</KI> <I_MAX>20</I_MAX> <KD>0</KD>
+            <V>0.0</V><W>0</W>
+            <max_torque>600</max_torque>
+        </controller>
+
+        <!-- Traccion trasera (el motor Curtis mueve el eje trasero) -->
+        <drivetrain type="open_rear">
+            <rear_left_right_split>0.5</rear_left_right_split>
+            <rear_left_right_bias>0.0</rear_left_right_bias>
+        </drivetrain>
+    </dynamics>
+
+    <friction class="default">
+        <mu>0.7</mu>
+        <C_damping>10</C_damping>
+    </friction>
+
+    <!-- Carroceria del esqueleto anterior. El offset es una estimacion: hay que verificarlo
+         contra el modelo real en la vista 3D. -->
+    <visual>
+        <model_uri>{{ chassis_mesh }}</model_uri>
+        <model_scale>1</model_scale>
+        <model_offset_x>-0.5</model_offset_x>
+        <model_offset_y>0.0</model_offset_y>
+        <model_offset_z>0.0</model_offset_z>
+    </visual>
+</vehicle:class>

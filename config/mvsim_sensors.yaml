@@ -1,0 +1,70 @@
+# Parametros de simulacion de cada sensor para MVSim.
+#
+# Posicion de montaje, activacion (enabled) y tipo: se leen de
+#   caddy_ai2_ros2_description/bringup/config/robot_params.yaml   (sensors:)
+# Este fichero solo guarda lo que MVSim necesita y robot_params.yaml no trae: nombre del sensor en
+# MVSim, frecuencia, ruido y alcance. Los valores son COPIA de la seccion `simulation:` del
+# sensor_params.yaml de cada paquete de sensor (misma fuente que usa Gazebo); si cambian alli,
+# cambiarlos tambien aqui.
+#
+# La clave es el nombre del sensor en robot_params.yaml.
+
+# Georreferencia del origen del mundo (x=0, y=0): la necesita el GNSS para dar latitud/longitud.
+# Es COPIA de <spherical_coordinates> en
+# caddy_ai2_ros2_gazebo_simulation/description/world/parking_garage.sdf (heading 0 = ENU).
+georeference:
+  latitude: 40.284796
+  longitude: -3.821407
+  height: 675.0                 # m sobre el elipsoide WGS84
+  world_to_enu_rotation_deg: 0.0
+
+imu_sbg_ig500n:                 # caddy_ai2_ros2_control_sensors_sbg_ig_500n
+  mvsim_name: sbg_ig500n_imu
+  update_rate: 100.0            # Hz
+  gyro_stddev: 0.001            # rad/s
+  accel_stddev: 0.01            # m/s^2
+  measure_orientation: true
+
+gps_sbg_ig500n:                 # caddy_ai2_ros2_control_sensors_sbg_ig_500n
+  mvsim_name: sbg_ig500n_gps
+  update_rate: 5.0              # Hz (gps_update_rate)
+  horizontal_stddev: 0.5        # m  (provisional: el GNSS real del IG-500N con RTK seria menor)
+  vertical_stddev: 1.0          # m
+
+lidar_2d_sick_lms_291:          # caddy_ai2_ros2_sensors_lidar_sick_lms_291
+  mvsim_name: sick_lms_291
+  update_rate: 75.0             # Hz
+  fov_degrees: 180.0
+  nrays: 181                    # 180 deg / 1.0 deg de resolucion + 1
+  range_max: 80.0               # m
+  range_stddev: 0.01            # m  (provisional)
+  raytrace_3d: false            # false = solo contra el mapa de ocupacion 2D (mucho mas barato)
+
+lidar_3d_rs_helios_5515:        # caddy_ai2_ros2_sensors_rs_helios_5515
+  mvsim_name: rs_helios_5515
+  update_rate: 10.0             # Hz
+  range_min: 0.1                # m
+  range_max: 150.0              # m
+  range_stddev: 0.02            # m (datasheet +-2 cm)
+  # MVSim trae helios-32-FOV-70.sensor.xml: 32 canales con los angulos reales del RS-Helios
+  # (-55.02 .. +15 grados) y 1808 rayos por vuelta a 10 Hz.
+
+imu_vn100:                      # caddy_ai2_ros2_imu_vectornav_vn100
+  mvsim_name: vn100_imu
+  update_rate: 100.0            # Hz
+  gyro_stddev: 0.0005           # rad/s
+  accel_stddev: 0.014           # m/s^2
+  measure_orientation: true
+
+# ZED 2i (lente 2.1 mm: 110 x 70 grados). Mismo campo de vision que Gazebo, pero a la MITAD de
+# resolucion (640x314 en lugar de 1280x628): cada ZED publica imagen, profundidad y nube a
+# 15 Hz y a resolucion completa fue lo que mas cargo a Gazebo. Subir image_width/height si hace falta.
+zed_2i:
+  update_rate: 15.0             # Hz
+  horizontal_fov_deg: 110.0
+  image_width: 640
+  image_height: 314
+  range_min: 0.3                # m
+  range_max: 20.0               # m
+  depth_stddev: 0.01            # m  (provisional)
+  show_3d_pointcloud: false
