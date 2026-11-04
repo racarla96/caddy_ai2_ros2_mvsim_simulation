@@ -127,6 +127,30 @@ el paso bajo el puente y el cruce del tablero a 4 m. Cómo está montado y qué 
 - Limitación conocida: A* no respeta el radio mínimo de giro del Caddy (~3,9 m) y las esquinas de las calzadas son de
   4 m; Pure Pursuit las toma con arcos que se salen un poco de la calzada.
 
+### El mismo circuito en Gazebo
+
+`tools/export_circuit_to_gazebo.py` genera, a partir del propio mundo de MVSim, un modelo y un mundo de Gazebo
+(`models/road_circuit`, `world/road_circuit.sdf` en `caddy_ai2_ros2_gazebo_simulation`), para tener el mismo escenario 3D
+en los dos simuladores:
+
+```bash
+python3 tools/export_circuit_to_gazebo.py --out <.../caddy_ai2_ros2_gazebo_simulation/description>
+ros2 launch caddy_ai2_ros2_sim sim.launch.py world:=road_circuit.sdf headless:=true nav:=none
+python3 tools/drive_route.py --route all          # el mismo piloto automático que en MVSim
+```
+
+El terreno es una **malla STL** con la altura exacta de MVSim (no un `heightmap` de Gazebo, que exige una imagen cuadrada
+de 2^n+1 píxeles, normalmente de 8 bits: los baches de 1-5 cm sobre una montaña de 30 m se perderían); las calzadas, una
+segunda malla encima para el color; el tablero, una caja, y las columnas, cilindros.
+
+Verificado: el piloto automático completa la ruta en Gazebo (vuelta, colina y tablero; el Caddy acaba con z = 4,02 m) y el Helios
+de Gazebo coincide con el mismo mapa 3D que en MVSim (mediana 0,13 m, 96 % a menos de 0,3 m). Gazebo va a ~0,55 de tiempo
+real con los mismos sensores.
+
+**No funciona todavía: EasyNav en Gazebo.** Con la misma configuración y los mismos mapas, AMCL diverge en cuanto el Caddy
+se mueve (`map→odom` salta y se gira ~27°); la causa no está identificada. En MVSim, con los mismos ficheros, funciona.
+El mapa no es el problema (coincide con el sensor en los dos simuladores).
+
 **Vídeo** (MVSim ≥ 2.0 graba la vista 3D en tiempo de simulación, también en headless; si el nombre lleva un patrón
 `%06d` guarda imágenes sueltas y no hace falta `ffmpeg` en la máquina del simulador):
 
