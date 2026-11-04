@@ -1,0 +1,184 @@
+# EasyNav 3D parameters — Caddy AI2 in the MVSim road circuit (world:=road_circuit).
+# Copia de caddy_ai2_ros2_navigation/config/easynav_3d_params.yaml (parking) con otros mapas y una velocidad mayor;
+# el robot, los sensores, el localizador, el planificador y el controlador son los mismos.
+# Mapas: maps/road_circuit_bonxai.pcd y maps/road_circuit.navmap, generados de forma analitica del propio mundo
+# con tools/make_circuit_map.py (+ pointcloud_to_navmap --resolution 0.3 --max-slope-deg 35). z = 0 es el suelo.
+#
+# NOTE: easynav_navmap_planner is an A* over a mesh and does NOT enforce the Caddy's minimum turning radius
+# (~3.9 m); the circuit's roads are 4 m wide.
+system_node:
+  ros__parameters:
+    use_sim_time: true
+    use_real_time: false        # no RT kernel setup needed in simulation
+    rt_freq: 50.0
+    position_tolerance: 0.4
+    height_tolerance: 0.5       # a goal on another floor is not reached
+    angle_tolerance: 3.14       # Ackermann cannot rotate in place: do not require the goal heading
+    # The robot is modeled as a circle. radius = circumscribed circle of the footprint
+    # (sqrt(1.33^2 + 0.615^2)), inscribed_radius = half the width, height = collision box height.
+    robot_geometry:
+      radius: 1.47
+      inscribed_radius: 0.615
+      height: 1.7
+
+sensors_node:
+  ros__parameters:
+    use_sim_time: true
+    forget_time: 0.5
+    perception_default_frame: odom
+    sensors: [helios, imu, gps]
+    helios:
+      # Output of the CropBox that removes the Caddy's own body from the Helios cloud
+      topic: /caddy_ai2/rs_helios_5515/points_filtered
+      type: sensor_msgs/msg/PointCloud2
+    imu:
+      topic: /caddy_ai2/sbg_ig500n/imu
+      type: sensor_msgs/msg/Imu
+    gps:
+      topic: /caddy_ai2/sbg_ig500n/navsat
+      type: sensor_msgs/msg/NavSatFix
+
+maps_manager_node:
+  ros__parameters:
+    use_sim_time: true
+    map_types: [bonxai, navmap]
+    bonxai:
+      freq: 10.0
+      plugin: easynav_bonxai_maps_manager/BonxaiMapsManager
+      package: caddy_ai2_ros2_mvsim_simulation
+      bonxai_path_file: maps/road_circuit_bonxai.pcd   # surface points of the circuit (terrain, bridge deck, columns)
+    navmap:
+      freq: 10.0
+      plugin: easynav_navmap_maps_manager/NavMapMapsManager
+      package: caddy_ai2_ros2_mvsim_simulation
+      # Terrain mesh: roads, the 4 m hill and the bridge deck (overlaps the north road in XY).
+      navmap_path_file: maps/road_circuit.navmap
+      filters: [obstacles, inflation]
+      obstacles:
+        plugin: easynav_navmap_maps_manager/NavMapMapsManager/ObstaclesFilter
+        memory:
+          enabled: true
+          p_hit: 0.55
+          decay_time: 10.0
+        max_range: 4.0              # nearby points only (robot frame): the static map covers the rest
+        # Mas holgado que en el parking (0.2 y 0.05): el mapa analitico del circuito (tools/make_circuit_map.py) difiere del
+        # terreno de MVSim en las pendientes (mediana 0.14 m, p90 0.25 m) y con el umbral del parking el terreno
+        # inclinado se vea como obstaculo y el reflejo de colision detiene al Caddy en las esquinas.
+        min_height: 0.5
+        min_height_per_meter: 0.15
+        max_height: 1.9             # Caddy height 1.7 m plus a margin
+      inflation:
+        plugin: easynav_navmap_maps_manager/NavMapMapsManager/InflationFilter
+        inflation_radius: 2.0
+        cost_scaling_factor: 1.5
+
+localizer_node:
+  ros__parameters:
+    use_sim_time: true
+    localizer_types: [amcl]
+    amcl:
+      rt_freq: 50.0
+      freq: 5.0
+      reseed_freq: 1.0
+      plugin: easynav_navmap_localizer/AMCLLocalizer
+      downsampled_cloud_size: 0.3   # about the Bonxai map's voxels
+      num_particles: 100
+      noise_translation: 0.1
+      noise_rotation: 0.03
+      noise_translation_to_rotation: 0.02
+      min_noise_xy: 0.2
+      min_noise_yaw: 0.1
+      compute_odom_from_tf: true    # odom -> base_footprint from TF, no /odom topic needed
+      initial_pose:
+        x: 0.0
+        y: 0.0
+        yaw: 0.0
+        std_dev_xy: 0.1
+        std_dev_yaw: 0.02
+
+planner_node:
+  ros__parameters:
+    use_sim_time: true
+    planner_types: [astar]
+    astar:
+      freq: 1.0
+      plugin: easynav_navmap_planner/AStarPlanner
+      cost_weight: 3.0
+      terrain:
+        slope_weight: 100.0
+
+controller_node:
+  ros__parameters:
+    use_sim_time: true
+    use_cmd_vel_stamped: true      # publishes TwistStamped on cmd_vel_stamped
+    robot_limits:
+      max_linear_vel: 1.5          # m/s
+      min_linear_vel: -0.4         # only recoveries reverse (RPP allow_reversing is false)
+      max_angular_vel: 0.8         # rad/s
+      max_linear_acc: 1.5
+      max_linear_decel: 2.0
+      max_angular_acc: 2.0
+      max_angular_decel: 3.0
+    controller_types: [rpp]
+    rpp:
+      rt_freq: 30.0
+      plugin: easynav_regulated_pp_controller/RegulatedPurePursuitController
+      use_dynamic_window: false
+      allow_reversing: false
+      lookahead_dist: 2.0
+      min_lookahead_dist: 1.0
+      max_lookahead_dist: 3.0
+      lookahead_time: 1.5
+      use_velocity_scaled_lookahead_dist: true
+      use_rotate_to_heading: false   # Ackermann: never rotate in place
+      use_regulated_linear_velocity_scaling: true
+      regulated_linear_scaling_min_radius: 2.0   # ~ minimum turning radius
+      regulated_linear_scaling_min_speed: 0.3
+      use_fixed_curvature_lookahead: false
+      curvature_lookahead_dist: 1.5
+      interpolate_curvature_after_goal: false
+      use_obstacle_regulated_linear_velocity_scaling: true
+      obstacle_scaling_dist: 1.0
+      obstacle_scaling_gain: 0.8
+      z_min_filter: 0.3              # ignore the ground
+      min_approach_linear_velocity: 0.1
+      approach_velocity_scaling_dist: 1.5
+      xy_goal_tolerance: 0.4
+      yaw_goal_tolerance: 3.14
+
+recovery_node:
+  ros__parameters:
+    use_sim_time: true
+    # No AMCL relocalize mitigation: it rotates in place, which an Ackermann cannot do.
+    recovery_manager:
+      plugin: easynav_diagnostic_recovery/DiagnosticRecoveryManager
+      safety_reflex_types: [collision]
+      collision:
+        plugin: easynav_diagnostic_recovery/CollisionSafetyReflex
+        z_min_filter: 0.45          # el terreno junto a la calzada sube ~0.3 m: no es un obstaculo (defecto 0.0)
+      evaluator_types: [no_path, obstacle_close, controller_stuck]
+      no_path:
+        plugin: easynav_diagnostic_recovery/NoPathEvaluator
+      obstacle_close:
+        plugin: easynav_diagnostic_recovery/ObstacleTooCloseEvaluator
+        z_min_filter: 0.45
+        safe_distance: 1.5          # from the robot CENTER; the nose is 1.08 m away, default 0.6 never fires
+      controller_stuck:
+        plugin: easynav_diagnostic_recovery/ControllerStuckEvaluator
+      mitigation_types: [retreat, advance, human_assistance, cancel_mission]
+      retreat:
+        plugin: easynav_diagnostic_recovery/SafeRetreatRecovery
+        z_min_filter: 0.45
+        priority: 5
+        safe_distance: 1.5
+        retreat_speed: 0.3
+      advance:
+        plugin: easynav_diagnostic_recovery/AdvanceRecovery
+        priority: 10
+      human_assistance:
+        plugin: easynav_diagnostic_recovery/HumanAssistanceRecovery
+        priority: 1000
+        timeout: 30.0
+      cancel_mission:
+        plugin: easynav_diagnostic_recovery/CancelMissionRecovery
+        priority: 2000

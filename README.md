@@ -96,6 +96,37 @@ unificada (`ground_truth/odometry` y `bicycle_steering_controller/reference`). L
 más cerradas que el radio de giro del Caddy (~3,9 m): toma arcos de 6 m y se sale un poco de la calzada. Las
 barandillas del puente están desactivadas en el propio demo ("TODO: fix collisions at different heights").
 
+### EasyNav 3D en el circuito
+
+```bash
+ros2 launch caddy_ai2_ros2_mvsim_simulation sim_mvsim.launch.py world:=road_circuit headless:=True use_rviz:=False
+ros2 launch caddy_ai2_ros2_navigation navigation_3d.launch.py \
+    params_file:=$(ros2 pkg prefix caddy_ai2_ros2_mvsim_simulation)/share/caddy_ai2_ros2_mvsim_simulation/config/easynav_3d_road_circuit.yaml
+python3 tools/nav_goals.py            # secuencia de 8 objetivos (calzadas, colina, puente)
+```
+
+Con esto EasyNav (localización AMCL, A* sobre el NavMap, Regulated Pure Pursuit) completa los 8 objetivos, incluidos
+el paso bajo el puente y el cruce del tablero a 4 m. Cómo está montado y qué hizo falta:
+
+- **Mapa 3D analítico** (`maps/road_circuit_bonxai.pcd` y `road_circuit.navmap`): `tools/make_circuit_map.py` muestrea
+  los propios mapas de alturas, el tablero y las columnas del mundo de MVSim (la verdad exacta, sin sensor ni pose 3D;
+  la verdad de terreno de MVSim es 2D). Validado contra el Helios simulado: mediana 0,14 m, 92 % a menos de 0,3 m.
+  Quita el terreno que queda a menos de 1,9 m bajo el tablero (`--clearance`): si no, el mallador lo mezcla con la cara
+  superior del tablero y A* no encuentra camino a la colina-tablero. NavMap: `pointcloud_to_navmap --resolution 0.3
+  --max-slope-deg 35`.
+- **Helios con `ignore_parent_body`** (`mvsim/sensors.xml.j2`): sin él, el lidar ve la carrocería del propio vehículo
+  (por defecto una caja que lo encierra y todos los rayos devuelven 0,6-2 m).
+- **`config/easynav_3d_road_circuit.yaml`**: copia de la del parking con los mapas del circuito y dos cambios: el filtro
+  de obstáculos del NavMap más holgado (`min_height` 0,5 y `min_height_per_meter` 0,15, por la diferencia entre el mapa
+  analítico y el terreno en las pendientes) y **`z_min_filter: 0.45` en `CollisionSafetyReflex`,
+  `ObstacleTooCloseEvaluator` y `SafeRetreatRecovery`**: su valor por defecto (0,0) cuenta como obstáculo cualquier
+  punto sobre el suelo, y el terreno junto a la calzada sube ~0,3 m: el Caddy se quedaba atascado en las esquinas en un
+  bucle de "obstáculo cerca, retroceder, colisión inminente". El parking tiene el mismo valor por defecto.
+- `tools/nav_goals.py` inicializa AMCL con la pose real (verdad de terreno), no con la de arranque: si el Caddy ya no
+  está en el origen, un `/initialpose` en (0, 0) lo pierde.
+- Limitación conocida: A* no respeta el radio mínimo de giro del Caddy (~3,9 m) y las esquinas de las calzadas son de
+  4 m; Pure Pursuit las toma con arcos que se salen un poco de la calzada.
+
 **Vídeo** (MVSim ≥ 2.0 graba la vista 3D en tiempo de simulación, también en headless; si el nombre lleva un patrón
 `%06d` guarda imágenes sueltas y no hace falta `ffmpeg` en la máquina del simulador):
 

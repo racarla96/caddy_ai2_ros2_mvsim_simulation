@@ -56,14 +56,15 @@
     </friction>
 
 {% if chassis_mesh %}
-    <!-- Carroceria del esqueleto anterior. El offset es una estimacion: hay que verificarlo
-         contra el modelo real en la vista 3D. -->
+    <!-- Carroceria: el mismo STL que la URDF (rbcar_chassis.stl), que en la URDF va SIN desplazamiento respecto a
+         base_link (caja del STL: x -1.58..0.98, y +-0.57, z -0.075..1.425). El origen del vehiculo en MVSim coincide
+         con base_link en x e y, pero esta en el SUELO y base_link a wheel_radius: por eso solo se sube en z. -->
     <visual>
         <model_uri>{{ chassis_mesh }}</model_uri>
         <model_scale>1</model_scale>
-        <model_offset_x>-0.5</model_offset_x>
+        <model_offset_x>0.0</model_offset_x>
         <model_offset_y>0.0</model_offset_y>
-        <model_offset_z>0.0</model_offset_z>
+        <model_offset_z>{{ wheel_radius }}</model_offset_z>
     </visual>
 {% endif %}
 </vehicle:class>

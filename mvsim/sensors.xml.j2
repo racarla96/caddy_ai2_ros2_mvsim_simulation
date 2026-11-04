@@ -33,15 +33,30 @@
             viz_visiblePoints="false"
         />
 {%- elif s.kind == 'lidar_3d' %}
-        <!-- Helios de 32 canales y 70 grados que trae MVSim -->
-        <include file="{{ defs }}/helios-32-FOV-70.sensor.xml"
-            sensor_name="{{ s.mvsim_name }}"
-            sensor_x="{{ s.x }}" sensor_y="{{ s.y }}" sensor_z="{{ s.z }}"
-            sensor_yaw="{{ s.yaw_deg }}" sensor_pitch="{{ s.pitch_deg }}" sensor_roll="{{ s.roll_deg }}"
-            sensor_rate="{{ s.update_rate }}"
-            sensor_std_noise="{{ s.range_stddev }}"
-            min_range="{{ s.range_min }}" max_range="{{ s.range_max }}"
-        />
+        <!-- RS-Helios-5515: 32 canales, -55 a +15 grados (angulos reales). Es la definicion helios-32-FOV-70 de
+             MVSim con una unica diferencia: ignore_parent_body, que esa definicion no expone. Sin el, el lidar
+             ve la carroceria del propio vehiculo (un STL, o por defecto una caja de 0,2 a 1,9 m que lo encierra:
+             todos los rayos devuelven 0,6-2 m). Con el, no hace falta el CropBox que si necesita Gazebo. -->
+        <sensor class="lidar3d" name="{{ s.mvsim_name }}">
+            <pose_3d>{{ s.x }} {{ s.y }} {{ s.z }} {{ s.yaw_deg }} {{ s.pitch_deg }} {{ s.roll_deg }}</pose_3d>
+            <ignore_parent_body>true</ignore_parent_body>
+            <vert_nrays>32</vert_nrays>
+            <vertical_ray_angles>-55.020 -52.081 -49.142 -46.204 -43.265 -40.326 -37.387 -34.449 -31.510 -28.571 -25.632 -22.694 -19.755 -16.816 -13.877 -10.939 -8.000 -6.667 -5.333 -4.000 -2.667 -1.333  0.000 1.333 2.667 4.000 5.333 6.667 8.754 10.841 12.929 15</vertical_ray_angles>
+            <sensor_period>$f{1.0/{{ s.update_rate }}}</sensor_period>
+            <horz_nrays>$f{(1.0/{{ s.update_rate }})/55.296e-6}</horz_nrays>
+            <horz_resolution_factor>1.0</horz_resolution_factor>
+            <vert_resolution_factor>1.0</vert_resolution_factor>
+            <max_vert_relative_depth_to_interpolate>0.3</max_vert_relative_depth_to_interpolate>
+            <max_horz_relative_depth_to_interpolate>0.1</max_horz_relative_depth_to_interpolate>
+            <range_std_noise>{{ s.range_stddev }}</range_std_noise>
+            <min_range>{{ s.range_min }}</min_range>
+            <max_range>{{ s.range_max }}</max_range>
+            <visual> <model_uri>{{ defs }}/../models/velodyne-vlp16.dae</model_uri> <model_roll>90</model_roll> </visual>
+            <generate_intensity>false</generate_intensity>
+            <publish enabled="false">
+                <publish_topic>/${PARENT_NAME}/${NAME}</publish_topic>
+            </publish>
+        </sensor>
 {%- elif s.kind == 'camera_rgbd' %}
         <sensor class="rgbd_camera" name="{{ s.mvsim_name }}">
             <pose_3d>{{ s.x }} {{ s.y }} {{ s.z }} {{ s.yaw_deg }} {{ s.pitch_deg }} {{ s.roll_deg }}</pose_3d>
