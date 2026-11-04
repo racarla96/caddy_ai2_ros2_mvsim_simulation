@@ -33,6 +33,33 @@ def load_pcd(path):
         return np.stack([d["x"], d["y"], d["z"]], 1).astype(np.float64)
 
 
+def remove_small_components(occ, min_cells):
+    """Quita los grupos conexos (8 vecinos) de menos de min_cells celdas ocupadas."""
+    h, w = occ.shape
+    seen = np.zeros_like(occ, bool)
+    out = occ.copy()
+    removed = 0
+    for sy, sx in zip(*np.nonzero(occ)):
+        if seen[sy, sx]:
+            continue
+        stack, comp = [(sy, sx)], []
+        seen[sy, sx] = True
+        while stack:
+            y, x = stack.pop()
+            comp.append((y, x))
+            for dy in (-1, 0, 1):
+                for dx in (-1, 0, 1):
+                    ny, nx = y + dy, x + dx
+                    if 0 <= ny < h and 0 <= nx < w and occ[ny, nx] and not seen[ny, nx]:
+                        seen[ny, nx] = True
+                        stack.append((ny, nx))
+        if len(comp) < min_cells:
+            for y, x in comp:
+                out[y, x] = False
+            removed += len(comp)
+    return out, removed
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("pcd")
@@ -41,6 +68,8 @@ def main():
     ap.add_argument("--zmin", type=float, default=0.1)
     ap.add_argument("--zmax", type=float, default=1.5)
     ap.add_argument("--margin", type=float, default=1.0, help="margen libre alrededor (m)")
+    ap.add_argument("--min-component", type=int, default=12,
+                    help="descartar grupos de menos celdas ocupadas (ruido); 1 = no filtrar")
     args = ap.parse_args()
 
     pts = load_pcd(args.pcd)
@@ -62,6 +91,13 @@ def main():
     occ = np.zeros((h, w), bool)
     occ[iy, ix] = True
 
+    # Quitar ruido: grupos pequenos de celdas ocupadas. Con navmap_map_builder el Helios ve el costado
+    # del propio robot en cada posicion visitada (celdas sueltas cada ~1 m); las paredes y pilares
+    # reales forman grupos grandes y se conservan.
+    removed = 0
+    if args.min_component > 1:
+        occ, removed = remove_small_components(occ, args.min_component)
+
     # fila 0 de la imagen = y maximo (convencion de ROS map_server)
     img = np.where(occ[::-1], 0, 254).astype(np.uint8)
     out = args.out
@@ -73,8 +109,8 @@ def main():
         f.write("resolution: %g\n" % r)
         f.write("origin: [%.3f, %.3f, 0.0]\n" % (xmin, ymin))
         f.write("negate: 0\noccupied_thresh: 0.65\nfree_thresh: 0.25\n")
-    print("mapa %dx%d celdas de %g m | %d ocupadas (%.1f%%) | origen (%.2f, %.2f) | puntos en banda: %d"
-          % (w, h, r, occ.sum(), 100 * occ.mean(), xmin, ymin, len(obst)))
+    print("mapa %dx%d celdas de %g m | %d ocupadas (%.1f%%), %d descartadas como ruido | origen (%.2f, %.2f) | puntos en banda: %d"
+          % (w, h, r, occ.sum(), 100 * occ.mean(), removed, xmin, ymin, len(obst)))
 
 
 if __name__ == "__main__":

@@ -32,4 +32,9 @@ install(
   DESTINATION share/${PROJECT_NAME}
 )
 
+install(
+  PROGRAMS scripts/gazebo_compat_adapter.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 ament_package()

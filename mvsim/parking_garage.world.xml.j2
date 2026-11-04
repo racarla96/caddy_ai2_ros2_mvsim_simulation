@@ -95,6 +95,8 @@
             <sense_rgb>true</sense_rgb>
             <show_3d_pointcloud>{{ 'true' if s.show_3d_pointcloud else 'false' }}</show_3d_pointcloud>
             <publish_ros_depth_image>true</publish_ros_depth_image>
+            <!-- metros en float32 (NaN = invalido), como el rgbd_camera de Gazebo (MVSim >= 2.0) -->
+            <ros_depth_image_encoding>32FC1</ros_depth_image_encoding>
             <publish_ros_colored_pointcloud>true</publish_ros_colored_pointcloud>
 
             <depth_ncols>{{ s.image_width }}</depth_ncols>
