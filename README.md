@@ -114,18 +114,19 @@ ros2 launch ... control:=ros2_control steering_mode:=bicycle      # una junta vi
 python3 tools/validate_ros2_control.py --ns /caddy_ai2 ...        # ver la cabecera del script
 ```
 
-**Necesita MVSim con la rama `feature/ros2-control-ackermann`** (fork `racarla96/mvsim`; el issue es MRPT/mvsim#167, todavía sin PR):
-ni MVSim 1.5.0 (`apt`) ni la 2.0.0 traen ros2_control para Ackermann (la 2.0.0 solo para diferenciales). Compila con MRPT 3.3.1
-(el de `apt`) y `hardware_interface` 4.48 ("current API"), sin hacer falta MRPT 3.6.1; los 60 tests de la rama pasan:
+**Necesita MVSim con el PR [MRPT/mvsim#169](https://github.com/MRPT/mvsim/pull/169)** (ros2_control para Ackermann; nació del issue
+MRPT/mvsim#167 y aún no está en un tag): ni MVSim 1.5.0 (`apt`) ni la 2.0.0 lo traen (la 2.0.0 solo para diferenciales). Compila con
+MRPT 3.3.1 (el de `apt`) y `controller_manager` 4.48 en Jazzy:
 
 ```bash
-git clone -b feature/ros2-control-ackermann https://github.com/racarla96/mvsim.git && cd mvsim && git submodule update --init
+git clone https://github.com/MRPT/mvsim.git && cd mvsim && git fetch origin pull/169/head:pr-169 && git checkout pr-169 && git submodule update --init
 colcon build --packages-select mvsim --cmake-args -DCMAKE_BUILD_TYPE=Release     # debe decir "ros2_control support enabled"
 ```
 
 Cómo está montado:
-- `mvsim/caddy_ai2.vehicle.xml.j2`: cada rueda lleva `joint_name` y `steering_joint_name` con los nombres de la URDF real del Caddy;
-  el `<controller class="ros2_control">` pide tracción por velocidad (un PID interno por rueda) y `steering_mode`.
+- `mvsim/caddy_ai2.vehicle.xml.j2`: cada rueda lleva `joint_name` con el nombre de la URDF real del Caddy; el
+  `<controller class="ros2_control">` pide tracción por velocidad (un PID interno por rueda), `<steering_joints>` (`per_wheel` con
+  `steering_mode:=ackermann`, `central` con `bicycle`) y los nombres de las juntas de dirección (`fl_steer_joint_name`, ...).
   MVSim ata las juntas a las ruedas por nombre; la descripción del robot es la `generated` por MVSim.
 - `config/ros2_control_controllers.yaml.j2`: réplica de la de Gazebo (`controllers_simulation.yaml.j2`), con la geometría de
   `robot_params.yaml` y `use_sim_time`. Los spawners arrancan en cadena, en el mismo orden que en Gazebo.
@@ -135,7 +136,7 @@ Cómo está montado:
 - `config/mvsim_vehicle.yaml`: PID de velocidad por rueda (kp 1430, ki 300, par máximo 300 N·m) y velocidad de giro de la dirección.
   **Provisionales**: escalados de la demo de MVSim por masa y radio de rueda; ajustarlos con el vehículo real.
 
-Verificado en el laboratorio (MVSim con la rama, `road_circuit`, headless). Odometría del controlador frente a la verdad del simulador:
+Verificado en el laboratorio (MVSim con el PR #169, headless). Odometría del controlador frente a la verdad del simulador:
 
 | | Recta (1 m/s, 6 s) | Curva a izquierdas (v 1, w 0,3; 8 s) | Reparto en la curva |
 |---|---|---|---|
@@ -144,9 +145,12 @@ Verificado en el laboratorio (MVSim con la rama, `road_circuit`, headless). Odom
 | Caddy, `bicycle` | −0,91 %; error 5,3 cm | −0,21 %; error 3,0 cm; yaw −0,21° | tracción int. 3,71 < ext. 4,68 rad/s |
 
 Notas:
-- La odometría de `bicycle_steering_controller` es la del **eje trasero**, mientras el origen del Caddy en MVSim está a mitad de la
-  distancia entre ejes (0,825 m por delante): para compararla con la verdad hay que trasladarla (`--gt-offset-x -0.825` en el script).
-  Sin eso, en una curva de 108° el "error" sale ~1,4 m; no es del simulador.
+- La odometría de `bicycle_steering_controller` es la del **eje trasero**, y el PR #169 exige que el origen del vehículo esté ahí. El
+  origen del Caddy en MVSim es ahora el centro del eje trasero (= `base_footprint`); los sensores conservan sus coordenadas de
+  `robot_params.yaml` (la plantilla suma `wheelbase/2`) y la URDF se renderiza con `base_footprint_offset_x = wheelbase/2`. Con el origen
+  a mitad de la distancia entre ejes, en una curva de 112° el "error" salía 1,43 m; con el origen en el eje trasero, 0,06 m
+  (`ackermann`: recta −1,1 %, curva −0,7 % y yaw −0,7°). **La tabla de arriba es de la versión anterior** (rama del fork, origen en el centro).
+  Los argumentos `x`/`y` del launch se refieren ahora al eje trasero.
 - Con `ki: 29` el PID de velocidad se quedaba un 5,6 % por debajo del comando en una recta de 6 s; con `ki: 300`, un 1,6 %.
 - En modo `bicycle`, `steering_joint` aparece en `/dynamic_joint_states` pero no en `/joint_states` (posible filtro de URDF del
   `joint_state_broadcaster`; no comprobado). La odometría funciona, así que el controlador sí lo lee.
