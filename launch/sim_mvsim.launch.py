@@ -72,7 +72,8 @@ def _sensors(robot_params, cfg):
             key=key,
             frame_id=s['frame_id'],
             mvsim_name=key if kind == 'camera_rgbd' else c['mvsim_name'],
-            x=pose['x'], y=pose['y'],
+            # robot_params da la pose respecto a base_link, que esta wheelbase/2 por delante del origen de MVSim (eje trasero)
+            x=pose['x'] + robot_params['wheelbase'] / 2.0, y=pose['y'],
             # robot_params da z respecto a base_link (a wheel_radius del suelo); MVSim, respecto al suelo
             z=pose['z'] + wheel_radius,
             yaw_deg=math.degrees(pose.get('yaw', 0.0)),
@@ -274,7 +275,7 @@ def _launch_setup(context, *args, **kwargs):
         urdf = Environment(loader=FileSystemLoader(urdf_dir), keep_trailing_newline=True).get_template(
             'caddy_ai2_model.urdf.j2').render(
             namespace=NS, prefix='', sensors_urdf_fragment=_render_sensor_fragments(rp, ''),
-            desc_share=desc, **rp)
+            desc_share=desc, base_footprint_offset_x=rp['wheelbase'] / 2.0, **rp)
         actions += [
             Node(package='robot_state_publisher', executable='robot_state_publisher',
                  namespace=NS, output='screen', parameters=[{'robot_description': urdf}]),
@@ -341,8 +342,8 @@ def generate_launch_description():
 
     return LaunchDescription([
         arg('control', 'builtin', "Control del vehiculo: 'builtin' (cmd_vel -> controlador twist de MVSim) o 'ros2_control' "
-                                  "(la pila real: bicycle_steering_controller -> adaptadores -> juntas; necesita la rama "
-                                  "feature/ros2-control-ackermann de MVSim)"),
+                                  "(la pila real: bicycle_steering_controller -> adaptadores -> juntas; necesita el PR MRPT/mvsim#169 "
+                                  "(ros2_control para Ackermann))"),
         arg('steering_mode', 'ackermann', "Solo con control:=ros2_control. 'ackermann': dos juntas de direccion (FL, FR) con el adaptador "
                                          "bicycle->ackermann; 'bicycle': una junta virtual con el angulo equivalente (sin adaptador de direccion)"),
         arg('world', 'parking_garage', "Mundo: 'parking_garage' (planta baja) o 'road_circuit' (demo_road_circuit1 de MVSim)"),
