@@ -31,7 +31,7 @@ gps_sbg_ig500n:                 # caddy_ai2_ros2_control_sensors_sbg_ig_500n
   horizontal_stddev: 0.5        # m  (provisional: el GNSS real del IG-500N con RTK seria menor)
   vertical_stddev: 1.0          # m
 
-lidar_2d_sick_lms_291:          # caddy_ai2_ros2_sensors_lidar_sick_lms_291
+lidar_2d_sick_lms_291:          # caddy_ai2_ros2_sensors_sick_lms_291
   mvsim_name: sick_lms_291
   update_rate: 75.0             # Hz
   fov_degrees: 180.0
